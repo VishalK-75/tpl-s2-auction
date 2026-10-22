@@ -478,6 +478,76 @@ function AdminPanel() {
         alert("Teams updated successfully!");
     };
 
+    const handleDeleteTeam = async (teamId) => {
+        const teamToDelete = teams.find(t => t.id === teamId);
+        if (!teamToDelete) return;
+
+        const teamPlayersCount = (teamToDelete.players || []).length;
+        const msg = teamPlayersCount > 0
+            ? `Remove "${teamToDelete.name}"? This team has ${teamPlayersCount} player(s) that will be released back to the unsold pool.`
+            : `Are you sure you want to remove "${teamToDelete.name}"?`;
+
+        if (!window.confirm(msg)) return;
+
+        const updatedTeams = teams.filter(t => t.id !== teamId);
+        const updatedTeamEdits = teamEdits.filter(t => t.id !== teamId);
+
+        // Release any players assigned to this team
+        const updatedPlayers = players.map(p => {
+            if (p.teamId === teamId) {
+                return { ...p, status: 'uncapped', soldPrice: undefined, teamId: undefined };
+            }
+            return p;
+        });
+
+        // Reset current auction holder if it was this team
+        let updatedAuction = { ...currentAuction };
+        if (updatedAuction.currentTeamId === teamId) {
+            updatedAuction.currentTeamId = null;
+        }
+
+        const newState = {
+            ...data,
+            teams: updatedTeams,
+            players: updatedPlayers,
+            currentAuction: updatedAuction
+        };
+
+        setTeamEdits(updatedTeamEdits);
+        commitState(newState);
+
+        if (socket && socket.connected && SERVER_URL) {
+            try {
+                await fetch(`${SERVER_URL}/api/update-teams`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ teams: updatedTeams })
+                });
+            } catch (err) { console.warn(err); }
+        }
+
+        alert(`Team "${teamToDelete.name}" removed!`);
+    };
+
+    const handleAddTeam = () => {
+        const newTeamLetter = String.fromCharCode(65 + teams.length);
+        const newId = Date.now();
+        const newTeam = {
+            id: newId,
+            name: `Team ${newTeamLetter}`,
+            budget: 6000,
+            spent: 0,
+            players: [],
+            minSlots: 12,
+            maxSlots: 15
+        };
+
+        const updatedTeams = [...teams, newTeam];
+        const updatedTeamEdits = [...teamEdits, newTeam];
+        setTeamEdits(updatedTeamEdits);
+        commitState({ ...data, teams: updatedTeams });
+    };
+
     const handleFileUpload = async () => {
         if (!file) return;
 
@@ -764,15 +834,16 @@ function AdminPanel() {
                         </div>
 
                         <div style={{ display: 'grid', gap: '10px' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 100px 80px 80px', gap: '10px', color: '#aaa', fontSize: '0.85rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 90px 70px 70px 45px', gap: '10px', color: '#aaa', fontSize: '0.85rem' }}>
                                 <div>Team Name</div>
                                 <div>Budget (L)</div>
                                 <div>Spent (L)</div>
                                 <div>Min Slots</div>
                                 <div>Max Slots</div>
+                                <div>Action</div>
                             </div>
                             {teamEdits.map((team, idx) => (
-                                <div key={team.id} style={{ display: 'grid', gridTemplateColumns: '1fr 100px 100px 80px 80px', gap: '10px', alignItems: 'center' }}>
+                                <div key={team.id} style={{ display: 'grid', gridTemplateColumns: '1fr 90px 90px 70px 70px 45px', gap: '10px', alignItems: 'center' }}>
                                     <input
                                         style={{ padding: '8px', background: '#333', border: '1px solid #555', color: 'white' }}
                                         value={team.name}
@@ -792,6 +863,7 @@ function AdminPanel() {
                                             newTeams[idx] = { ...newTeams[idx], budget: parseInt(e.target.value) || 0 };
                                             setTeamEdits(newTeams);
                                         }}
+                                        title="Total Budget (Lakhs)"
                                     />
                                     <input
                                         type="number"
@@ -802,6 +874,7 @@ function AdminPanel() {
                                             newTeams[idx] = { ...newTeams[idx], spent: parseInt(e.target.value) || 0 };
                                             setTeamEdits(newTeams);
                                         }}
+                                        title="Spent (Lakhs)"
                                     />
                                     <input
                                         type="number"
@@ -812,6 +885,7 @@ function AdminPanel() {
                                             newTeams[idx] = { ...newTeams[idx], minSlots: parseInt(e.target.value) || 12 };
                                             setTeamEdits(newTeams);
                                         }}
+                                        title="Min Slots"
                                     />
                                     <input
                                         type="number"
@@ -822,10 +896,33 @@ function AdminPanel() {
                                             newTeams[idx] = { ...newTeams[idx], maxSlots: parseInt(e.target.value) || 15 };
                                             setTeamEdits(newTeams);
                                         }}
+                                        title="Max Slots"
                                     />
+                                    <button
+                                        type="button"
+                                        onClick={() => handleDeleteTeam(team.id)}
+                                        title={`Delete ${team.name}`}
+                                        style={{
+                                            background: '#e53e3e',
+                                            border: 'none',
+                                            borderRadius: '5px',
+                                            color: 'white',
+                                            padding: '8px 5px',
+                                            cursor: 'pointer',
+                                            fontSize: '1rem',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center'
+                                        }}
+                                    >
+                                        🗑️
+                                    </button>
                                 </div>
                             ))}
-                            <button className="btn btn-primary" onClick={handleTeamSave} style={{ marginTop: '20px' }}>💾 Save Teams</button>
+                            <div style={{ display: 'flex', gap: '15px', marginTop: '20px' }}>
+                                <button className="btn btn-primary" onClick={handleTeamSave}>💾 Save Teams</button>
+                                <button type="button" className="btn btn-secondary" onClick={handleAddTeam} style={{ background: '#333', border: '1px solid #666' }}>➕ Add New Team</button>
+                            </div>
                         </div>
 
                         <div style={{ marginTop: '40px', borderTop: '1px solid #444', paddingTop: '20px' }}>
